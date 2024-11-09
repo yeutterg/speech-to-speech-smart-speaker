@@ -1,10 +1,11 @@
 import openai
+import os
 from functions import get_current_weather, control_lights, control_spotify
 
 class SpeechHandler:
 	def __init__(self, hardware):
 		self.hardware = hardware
-		openai.api_key = "YOUR_OPENAI_API_KEY"
+		openai.api_key = os.getenv("OPENAI_API_KEY")
 
 	def handle_speech(self):
 		# Capture audio input
