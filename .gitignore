@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+*.env.local
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv/
+
+# Configuration files
+config.py
+.env.local
+
+# Flask
+instance/
+.webassets-cache
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db

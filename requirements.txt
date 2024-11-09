@@ -1,0 +1,3 @@
+openai
+adafruit-voice-bonnet
+flask
