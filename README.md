@@ -43,6 +43,20 @@ If you are using the [Adafruit Voice Bonnet](https://www.adafruit.com/product/47
 
 1. [Install Blinka](https://learn.adafruit.com/circuitpython-on-raspberrypi-linux/installing-circuitpython-on-raspberry-pi) to enable the CircuitPython libraries on your Raspberry Pi
 2. [Install the Voicecard software](https://learn.adafruit.com/adafruit-voice-bonnet/audio-setup), then run a speaker and microphone test
+3. Install the Python audio packages: 
+
+```bash
+sudo apt-get install libportaudio2 portaudio19-dev
+pip3 install pyaudio
+```
+
+4. To test the whether the Python libraries work with the speaker and microphone:
+* Create a new file: ```touch audiotest.py```
+* Open the file: ```vi audiotest.py```
+* Press ```i```, then paste [this code snippet](https://arc.net/l/quote/hhdfvhiv)
+* Press ```esc```, then ```:wq```
+* Run ```python3 audiotest.py```, follow the prompts, and record some audio
+* Run ```aplay myrecording.wav``` to play back the recording
 
 ### Project Setup
 
