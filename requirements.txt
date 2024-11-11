@@ -1,3 +1,7 @@
 openai
-adafruit-voice-bonnet
 flask
+websockets
+adafruit-blinka
+pyaudio
+setuptools
+rpi-lgpio # comment out if using boards older than the Raspberry Pi 5
