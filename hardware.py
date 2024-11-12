@@ -165,8 +165,8 @@ class HardwareInterface:
 		# Activate the DotStar LED
 		self.dots.set_pixel(0, (0, 0, 255))  # Set the first LED to blue (RGB: 0, 0, 255)
 		self.dots.update()
-		# Invoke speech handling in a separate thread to prevent blocking
-		threading.Thread(target=self.speech_handler.handle_speech, args=(self.handle_speech_complete,), daemon=True).start()
+		# Invoke speech handling 
+		asyncio.create_task(self.speech_handler.handle_speech())
 
 	def play_wake_sound(self):
 		"""
