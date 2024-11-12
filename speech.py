@@ -17,17 +17,17 @@ class SpeechHandler:
 		openai.api_key = os.getenv("OPENAI_API_KEY")
 		# Initialize other necessary components here
 
-	def handle_speech(self):
+	def handle_speech(self, speech_complete_callback=None):
 		"""
 		Handles the speech processing tasks.
 		"""
 		# Run the asynchronous speech handling in an event loop
 		loop = asyncio.new_event_loop()
 		asyncio.set_event_loop(loop)
-		loop.run_until_complete(self.process_speech())
+		loop.run_until_complete(self.process_speech(speech_complete_callback))
 		loop.close()
 
-	async def process_speech(self):
+	async def process_speech(self, speech_complete_callback):
 		# Capture audio input
 		audio_input = self.capture_audio()
 
@@ -41,7 +41,7 @@ class SpeechHandler:
 		await self.process_response(response)
 
 		# Provide audio feedback
-		self.play_audio(response)
+		self.play_audio(response, speech_complete_callback)
 
 	def capture_audio(self):
 		"""
@@ -90,9 +90,14 @@ class SpeechHandler:
 			# If no known command is found, just repeat the response
 			self.play_audio(response)
 
-	def play_audio(self, message):
+	def play_audio(self, message, complete_callback=None):
 		"""
 		Plays audio feedback to the user.
 		Implement this method based on your hardware specifications.
 		"""
 		print(f"[SPEECH] Playing audio: {message}")
+		# Simulate audio playback delay
+		time.sleep(2)  # Simulate the time taken to play audio
+		if complete_callback:
+			complete_callback()  # Call the callback to indicate playback is complete
+		
