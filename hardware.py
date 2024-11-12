@@ -2,6 +2,7 @@ from gpiozero import Button, DigitalOutputDevice
 import platform
 import threading
 import time
+import pygame
 
 class DotStarCustom:
 	"""
@@ -157,13 +158,30 @@ class HardwareInterface:
 	def handle_press_event(self):
 		"""
 		Handles button press events and invokes the SpeechHandler.
-			"""
+		"""
 		print("[DEBUG] Button press event detected.")
-		# Invoke speech handling in a separate thread to prevent blocking
-		threading.Thread(target=self.speech_handler.handle_speech, args=(self.handle_speech_complete,), daemon=True).start()
+		# Play a pleasant beep sound to tell the user the device is listening
+		self.play_wake_sound()
 		# Activate the DotStar LED
 		self.dots.set_pixel(0, (0, 0, 255))  # Set the first LED to blue (RGB: 0, 0, 255)
 		self.dots.update()
+		# Invoke speech handling in a separate thread to prevent blocking
+		threading.Thread(target=self.speech_handler.handle_speech, args=(self.handle_speech_complete,), daemon=True).start()
+
+	def play_wake_sound(self):
+		"""
+		Plays a pleasant beep sound using Pygame in a separate thread.
+		"""
+		threading.Thread(target=self._play_sound, daemon=True).start()  # Start the sound in a new thread
+
+	def _play_sound(self):
+		"""
+		Helper method to play the sound.
+		"""
+		pygame.mixer.init()  # Initialize the mixer
+		beep_sound = pygame.mixer.Sound("audio/wake_sound.wav")  # Load your beep sound file
+		beep_sound.play()  # Play the sound
+		pygame.time.delay(500)  # Wait for the sound to finish playing (adjust as needed)
 
 	def handle_speech_complete(self):
 		"""
