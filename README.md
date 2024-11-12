@@ -64,8 +64,5 @@ pip3 install pyaudio
 2. Go to [platform.openai.com](https://platform.openai.com/), create an account and add $5-$10 credit (if you haven't already), then [create a new API secret key](https://platform.openai.com/api-keys) and copy it
 3. Make a copy of .env.sample and rename it to .env.local
 4. Paste your new API key into .env.local under ```OPENAI_API_KEY=""```
-5. If using a Raspberry Pi 5 or later, run: ```sudo apt remove python3-rpi.gpio```
-6. If you have an older Pi than the Raspberry Pi 5, comment out the rpi-lgpio package in requirements.txt
-7. Install the Python dependencies: ```pip3 install -r requirements.txt```
-7. Reboot the Raspberry Pi: ```sudo reboot```
-8. Run the project: ```python3 main.py```
+5. Install the Python dependencies: ```pip3 install -r requirements.txt```
+6. Run the project: ```python3 main.py```

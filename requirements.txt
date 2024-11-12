@@ -2,6 +2,7 @@ openai
 flask
 websockets
 adafruit-blinka
+adafruit-circuitpython-dotstar
 pyaudio
 setuptools
-rpi-lgpio # comment out if using boards older than the Raspberry Pi 5
+gpiozero

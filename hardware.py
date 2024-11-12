@@ -1,4 +1,6 @@
-import RPi.GPIO as GPIO
+from adafruit_dotstar import DotStar
+from gpiozero import Button
+from signal import pause
 import platform
 import threading
 import time
@@ -21,29 +23,32 @@ class HardwareInterface:
 		if platform_info.system != "Linux" or not platform_info.node.lower().startswith("ras"):
 			raise EnvironmentError("This script is intended to run on a Raspberry Pi.")
 
-		# Initialize GPIO
-		GPIO.setmode(GPIO.BCM)  # Use BCM pin numbering
-		GPIO.setup(self.BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-		print(f"[INIT] GPIO pin {self.BUTTON_PIN} initialized as input with pull-up resistor.")
+		# Initialize Button using gpiozero
+		self.button = Button(self.BUTTON_PIN, pull_up=True, bounce_time=0.1)
+		self.button.when_pressed = self.handle_press_event
+		print(f"[INIT] Button initialized on GPIO pin {self.BUTTON_PIN} with pull-up resistor and bounce_time=0.1s.")
 
-		# Set up event detection for button press (falling edge)
-		GPIO.add_event_detect(self.BUTTON_PIN, GPIO.FALLING, callback=self.handle_press_event, bouncetime=100)
-		print("[INIT] GPIO event detection set for button press with bouncetime=100ms.")
+		# Initialize DotStar LED strip
+		# self.DOTSTAR_DATA = 5
+		# self.DOTSTAR_CLOCK = 6
+		# self.dots = DotStar(self.DOTSTAR_CLOCK, self.DOTSTAR_DATA, 3, brightness=0.2)
+		# print("[INIT] DotStar LED initialized.")
 
-	def handle_press_event(self, channel):
+	def handle_press_event(self):
 		"""
-		Handles GPIO pin press events and invokes the SpeechHandler.
-
-		Args:
-			channel (int): The GPIO channel where the event was detected.
+		Handles button press events and invokes the SpeechHandler.
 		"""
 		print("[DEBUG] Button press event detected.")
 		# Invoke speech handling in a separate thread to prevent blocking
 		threading.Thread(target=self.speech_handler.handle_speech, daemon=True).start()
+		# Activate the DotStar LED
+		# self.dots[0] = (0, 0, 255)  # Set the first LED to blue (RGB: 0, 0, 255)
+		# self.dots.show()
 
 	def cleanup(self):
 		"""
 		Cleans up the GPIO settings.
 		"""
-		GPIO.cleanup()
+		# self.button.close()
+		# self.dots.deinit()
 		print("[CLEANUP] GPIO settings cleaned up.")
