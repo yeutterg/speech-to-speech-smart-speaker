@@ -16,7 +16,7 @@ if platform.system() != "Linux" or platform.uname()[1][:3] != "ras":
     raise EnvironmentError("This script is intended to run on a Raspberry Pi.")
 
 # Initialize the GPIO system
-# If you get an error related to GPIO access, run all 3 of these commands:
+# If you get an error related to GPIO access, run all 3 of these commands, then reboot:
 # sudo apt remove python3-rpi.gpio
 # pip3 uninstall rpi-lgpio
 # pip3 install rpi-gpio
