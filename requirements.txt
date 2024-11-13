@@ -7,3 +7,4 @@ pyaudio
 setuptools
 gpiozero
 pygame
+python-dotenv
