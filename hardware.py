@@ -1,8 +1,11 @@
+import asyncio
 from gpiozero import Button, DigitalOutputDevice
 import platform
 import threading
 import time
 import pygame
+from realtime_client import connect_to_realtime
+from speech import SpeechHandler  # Import the SpeechHandler
 
 class DotStarCustom:
 	"""
@@ -161,12 +164,28 @@ class HardwareInterface:
 		"""
 		print("[DEBUG] Button press event detected.")
 		# Play a pleasant beep sound to tell the user the device is listening
-		self.play_wake_sound()
+		# self.play_wake_sound()
 		# Activate the DotStar LED
-		self.dots.set_pixel(0, (0, 0, 255))  # Set the first LED to blue (RGB: 0, 0, 255)
+		self.dots.set_pixel(0, (0, 0, 80))  # Set the first LED to blue 
 		self.dots.update()
-		# Invoke speech handling 
-		asyncio.create_task(self.speech_handler.handle_speech())
+
+		# Create a new thread to run the asyncio event loop
+		threading.Thread(target=self.run_async_tasks, daemon=True).start()
+
+	def run_async_tasks(self):
+		"""
+		Runs the async tasks in a new event loop.
+		"""
+		loop = asyncio.new_event_loop()  # Create a new event loop
+		asyncio.set_event_loop(loop)  # Set the new event loop as the current one
+		loop.run_until_complete(self.connect_and_handle())  # Run the coroutine
+
+	async def connect_and_handle(self):
+		"""
+		Connects to the realtime client and handles speech.
+		"""
+		await connect_to_realtime()  # Connect to the realtime client
+		await self.speech_handler.handle_speech()  # Handle speech processing
 
 	def play_wake_sound(self):
 		"""
@@ -191,6 +210,9 @@ class HardwareInterface:
 		# Turn off the DotStar LED
 		self.dots.set_pixel(0, (0, 0, 0))  # Set the first LED to off (RGB: 0, 0, 0)
 		self.dots.update()
+
+		# Close the WebSocket connection
+		asyncio.create_task(self.speech_handler.realtime_client.close())  # Close the WebSocket connection
 
 	def cleanup(self):
 		"""

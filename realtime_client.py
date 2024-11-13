@@ -13,7 +13,6 @@ logger = logging.getLogger('RealtimeClient')
 class RealtimeClient:
     def __init__(self, api_key=None, url='wss://api.openai.com/v1/realtime'):
         self.api_key = api_key
-        print("API KEY:", self.api_key)
         self.url = url
         self.session = {}
         self.websocket = None
@@ -81,10 +80,10 @@ class RealtimeClient:
             await self.websocket.close()
 
 # Usage
-async def main():
+async def connect_to_realtime():
     client = RealtimeClient(api_key=os.getenv("OPENAI_API_KEY"))
     await client.connect()
     await client.handle_messages()
 
 # Run the client
-asyncio.run(main())
+# asyncio.run(main())

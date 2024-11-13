@@ -15,7 +15,6 @@ class SpeechHandler:
         """
         openai.api_key = os.getenv("OPENAI_API_KEY")
         self.realtime_client = RealtimeClient(api_key=openai.api_key)
-        asyncio.create_task(self.initialize_realtime())
 
     async def initialize_realtime(self):
         """
