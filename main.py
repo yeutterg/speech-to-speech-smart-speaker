@@ -2,7 +2,7 @@ import asyncio
 import logging
 import signal
 from gpiozero import Button
-from openai_realtime_client import RealtimeClient, TurnDetectionMode
+from openai_realtime_client import RealtimeClient
 from audio_handler import AudioHandler
 from config import OPENAI_API_KEY, BUTTON_PIN
 
@@ -17,7 +17,6 @@ class SmartSpeaker:
         self.audio_handler = AudioHandler()
         self.button = Button(BUTTON_PIN)
         self.loop = None
-        self.streaming_task = None
         
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
@@ -27,8 +26,7 @@ class SmartSpeaker:
             on_text_delta=lambda text: print(f"\nAssistant: {text}", end="", flush=True),
             on_audio_delta=self.audio_handler.play_audio,
             on_input_transcript=lambda transcript: print(f"\nYou said: {transcript}\nAssistant: ", end="", flush=True),
-            on_output_transcript=lambda transcript: print(f"{transcript}", end="", flush=True),
-            turn_detection_mode=TurnDetectionMode.SERVER_VAD,
+            on_output_transcript=lambda transcript: print(f"{transcript}", end="", flush=True)
         )
         
         # Set up button handler
@@ -48,29 +46,18 @@ class SmartSpeaker:
             # Start recording
             self.recording = True
             self.audio_handler.start_recording()
-            # Start streaming task
-            self.streaming_task = asyncio.create_task(self._stream_audio())
             logging.info("Recording started")
         else:
-            # Stop recording and streaming
+            # Stop recording and immediately send audio
             self.recording = False
-            if self.streaming_task:
-                self.streaming_task.cancel()
-                self.streaming_task = None
-            self.audio_handler.stop_recording()
-            logging.info("Recording stopped")
-    
-    async def _stream_audio(self):
-        """Stream audio data to the Realtime API"""
-        try:
-            while self.recording:
-                audio_chunk = self.audio_handler.record()
-                if audio_chunk:
-                    await self.client.send_audio(audio_chunk)
-                await asyncio.sleep(0.01)
-        except Exception as e:
-            logging.error(f"Error streaming audio: {e}")
-            self.recording = False
+            audio_data = self.audio_handler.stop_recording()
+            if audio_data:
+                try:
+                    logging.info("Sending audio to Realtime API...")
+                    await self.client.send_audio(audio_data)
+                    logging.info("Audio sent successfully")
+                except Exception as e:
+                    logging.error(f"Error sending audio: {e}")
     
     async def start(self):
         """Start the smart speaker"""
@@ -84,14 +71,17 @@ class SmartSpeaker:
             
             # Start message handler
             message_handler = asyncio.create_task(self.client.handle_messages())
+            logging.info("Message handler started")
             
             print("\nSmart Speaker is ready!")
             print("Press the button to start/stop recording")
             print("Press Ctrl+C to exit\n")
             
-            # Keep the main coroutine alive
+            # Main loop - just keep recording while active
             while True:
-                await asyncio.sleep(1)
+                if self.recording:
+                    self.audio_handler.record()
+                await asyncio.sleep(0.01)
                 
         except Exception as e:
             logging.error(f"Error in main loop: {e}")
@@ -101,8 +91,6 @@ class SmartSpeaker:
     async def cleanup(self):
         """Clean up resources"""
         self.recording = False
-        if self.streaming_task:
-            self.streaming_task.cancel()
         await self.client.close()
         self.audio_handler.cleanup()
         self.button.close()

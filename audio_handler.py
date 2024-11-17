@@ -1,6 +1,7 @@
 import pyaudio
 import wave
 import logging
+import io
 import os
 from config import CHUNK_SIZE, SAMPLE_FORMAT, CHANNELS, RATE
 
@@ -25,9 +26,9 @@ class AudioHandler:
         self.recording = True
         self.frames = []
         self.stream = self.p.open(
-            format=self.p.get_format_from_width(SAMPLE_FORMAT // 8),
-            channels=CHANNELS,
-            rate=RATE,
+            format=pyaudio.paInt16,  # 16-bit
+            channels=1,              # Mono
+            rate=16000,             # 16kHz
             input=True,
             frames_per_buffer=CHUNK_SIZE
         )
@@ -42,7 +43,7 @@ class AudioHandler:
                 logging.error(f"Error recording audio: {e}")
 
     def stop_recording(self):
-        """Stop recording and return the audio data"""
+        """Stop recording and return the audio data as WAV"""
         if not self.recording:
             return None
             
@@ -52,10 +53,17 @@ class AudioHandler:
         self.stream.close()
         self.stream = None
         
-        # Convert audio data to bytes
-        audio_data = b''.join(self.frames)
+        # Convert raw PCM to WAV format
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # 16-bit = 2 bytes
+            wf.setframerate(16000)
+            wf.writeframes(b''.join(self.frames))
+        
+        wav_data = wav_buffer.getvalue()
         self.frames = []
-        return audio_data
+        return wav_data
 
     def play_audio(self, audio_data):
         """Play audio from bytes data"""
@@ -65,9 +73,9 @@ class AudioHandler:
         try:
             # Create output stream
             stream = self.p.open(
-                format=self.p.get_format_from_width(SAMPLE_FORMAT // 8),
-                channels=CHANNELS,
-                rate=RATE,
+                format=pyaudio.paInt16,  # 16-bit
+                channels=1,              # Mono
+                rate=16000,             # 16kHz
                 output=True
             )
             
@@ -88,4 +96,4 @@ class AudioHandler:
             self.stream.stop_stream()
             self.stream.close()
         self.p.terminate()
-        logging.info("Audio handler cleaned up") 
+        logging.info("Audio handler cleaned up")
