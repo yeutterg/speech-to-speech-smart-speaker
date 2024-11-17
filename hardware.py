@@ -19,12 +19,14 @@ class HardwareController:
     Attributes:
         external_queue (asyncio.Queue): Queue to communicate events.
         use_mock (bool): Flag to determine whether to use MockFactory.
+        loop (asyncio.AbstractEventLoop): Reference to the asyncio event loop.
     """
-    def __init__(self, external_queue: asyncio.Queue, use_mock: bool = False):
+    def __init__(self, external_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, use_mock: bool = False):
         self.external_queue = external_queue
         self.use_mock = use_mock
+        self.loop = loop
         self.factory = None
-        self.last_button_press = "Enter"
+        self.last_button_press = "enter"
 
         if self.use_mock:
             self.factory = MockFactory()
@@ -44,17 +46,20 @@ class HardwareController:
 
     def on_button_pressed(self):
         """
-        Callback for space button press event. Adds an event to the external queue.
+        Callback for space button press event. Adds an event to the external queue in a thread-safe manner.
         """
-        logging.info("Button pressed. Adding event to external queue.")
-        if self.last_button_press == "Enter":
-            logging.info("Sending 'r' to external queue.")
-            self.external_queue.put_nowait("r")
-            self.last_button_press = "r"
-        else:
-            logging.info("Sending 'Enter' to external queue.")
-            self.external_queue.put_nowait("Enter")
-            self.last_button_press = "Enter"
+        logging.info("Button pressed. Scheduling event to external queue.")
+        try:
+            if self.last_button_press == "enter":
+                logging.info("Scheduling 'r' to external queue.")
+                asyncio.run_coroutine_threadsafe(self.external_queue.put("r"), self.loop)
+                self.last_button_press = "r"
+            else:
+                logging.info("Scheduling 'enter' to external queue.")
+                asyncio.run_coroutine_threadsafe(self.external_queue.put("enter"), self.loop)
+                self.last_button_press = "enter"
+        except Exception as e:
+            logging.error(f"Failed to schedule event to external queue: {e}")
 
     def close(self):
         """
