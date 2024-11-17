@@ -24,7 +24,7 @@ class SmartSpeaker:
         self.client = RealtimeClient(
             api_key=OPENAI_API_KEY,
             on_text_delta=lambda text: print(f"\nAssistant: {text}", end="", flush=True),
-            on_audio_delta=self.audio_handler.play_audio,
+            on_audio_delta=self.audio_handler.play_audio,  # This callback is correct
             on_input_transcript=lambda transcript: print(f"\nYou said: {transcript}\nAssistant: ", end="", flush=True),
             on_output_transcript=lambda transcript: print(f"{transcript}", end="", flush=True)
         )
@@ -81,7 +81,7 @@ class SmartSpeaker:
             while True:
                 if self.recording:
                     self.audio_handler.record()
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.005)
                 
         except Exception as e:
             logging.error(f"Error in main loop: {e}")

@@ -73,6 +73,7 @@ class AudioIOHandler:
             return
             
         try:
+            logging.info("Playing audio response")  # Add logging
             self.realtime_handler.play_audio(audio_data)
         except Exception as e:
             logging.error(f"Error playing audio: {e}")
