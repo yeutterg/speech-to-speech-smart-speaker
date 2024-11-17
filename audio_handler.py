@@ -4,6 +4,7 @@ import logging
 import io
 import os
 from config import CHUNK_SIZE, SAMPLE_FORMAT, CHANNELS, RATE
+from openai_realtime_client.handlers.audio_handler import AudioHandler as RealtimeAudioHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -12,6 +13,7 @@ logging.basicConfig(
 
 class AudioHandler:
     def __init__(self):
+        self.realtime_handler = RealtimeAudioHandler()
         self.p = pyaudio.PyAudio()
         self.stream = None
         self.frames = []
@@ -66,41 +68,12 @@ class AudioHandler:
         return wav_data
 
     def play_audio(self, audio_data):
-        """Play audio from bytes data"""
+        """Play audio using the realtime client's audio handler"""
         if not audio_data:
             return
             
         try:
-            # Create output stream with larger buffer and lower latency
-            stream = self.p.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=16000,
-                output=True,
-                frames_per_buffer=4096,  # Increased buffer size
-                stream_callback=None,
-                output_device_index=None,
-                start=False  # Don't start yet
-            )
-            
-            # Start stream
-            stream.start_stream()
-            
-            # Calculate buffer size for smoother playback
-            buffer_size = len(audio_data)
-            chunk_size = 4096  # Larger chunks for smoother playback
-            
-            # Play audio in larger chunks
-            for i in range(0, buffer_size, chunk_size):
-                if not stream.is_active():
-                    break
-                chunk = audio_data[i:i + chunk_size]
-                stream.write(chunk, exception_on_underflow=False)
-            
-            # Properly close stream
-            stream.stop_stream()
-            stream.close()
-            
+            self.realtime_handler.play_audio(audio_data)
         except Exception as e:
             logging.error(f"Error playing audio: {e}")
 
@@ -110,4 +83,5 @@ class AudioHandler:
             self.stream.stop_stream()
             self.stream.close()
         self.p.terminate()
+        self.realtime_handler.cleanup()
         logging.info("Audio handler cleaned up")
