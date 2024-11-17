@@ -3,7 +3,7 @@ import logging
 import signal
 from gpiozero import Button
 from openai_realtime_client import RealtimeClient
-from audio_handler import AudioHandler
+from audio import AudioIOHandler
 from config import OPENAI_API_KEY, BUTTON_PIN
 
 logging.basicConfig(
@@ -14,7 +14,7 @@ logging.basicConfig(
 class SmartSpeaker:
     def __init__(self):
         self.recording = False
-        self.audio_handler = AudioHandler()
+        self.audio_handler = AudioIOHandler()
         self.button = Button(BUTTON_PIN)
         self.loop = None
         

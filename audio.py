@@ -11,7 +11,7 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
 
-class AudioHandler:
+class AudioIOHandler:
     def __init__(self):
         self.realtime_handler = RealtimeAudioHandler()
         self.p = pyaudio.PyAudio()
