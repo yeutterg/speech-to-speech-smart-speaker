@@ -78,6 +78,14 @@ class AudioIOHandler:
         except Exception as e:
             logging.error(f"Error playing audio: {e}")
 
+    def stop_playback(self):
+        """Stop any ongoing audio playback"""
+        try:
+            self.realtime_handler.stop_playback_immediately()
+            logging.info("Audio playback stopped")
+        except Exception as e:
+            logging.error(f"Error stopping audio playback: {e}")
+
     def cleanup(self):
         """Clean up resources"""
         if self.stream:

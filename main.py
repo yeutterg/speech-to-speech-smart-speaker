@@ -24,7 +24,7 @@ class SmartSpeaker:
         self.client = RealtimeClient(
             api_key=OPENAI_API_KEY,
             on_text_delta=lambda text: print(f"\nAssistant: {text}", end="", flush=True),
-            on_audio_delta=self.audio_handler.play_audio,  # This callback is correct
+            on_audio_delta=self.audio_handler.play_audio,
             on_input_transcript=lambda transcript: print(f"\nYou said: {transcript}\nAssistant: ", end="", flush=True),
             on_output_transcript=lambda transcript: print(f"{transcript}", end="", flush=True)
         )
@@ -37,11 +37,15 @@ class SmartSpeaker:
         if self.loop is None:
             logging.error("Event loop not set")
             return
-            
+        
+        # Schedule the toggle recording
         asyncio.run_coroutine_threadsafe(self._toggle_recording(), self.loop)
         
     async def _toggle_recording(self):
         """Async method to handle recording toggle and audio sending"""
+        # Stop playback immediately in the synchronous context
+        self.audio_handler.stop_playback()
+        
         if not self.recording:
             # Start recording
             self.recording = True
