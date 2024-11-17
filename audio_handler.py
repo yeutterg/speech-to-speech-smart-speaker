@@ -26,9 +26,9 @@ class AudioHandler:
         self.recording = True
         self.frames = []
         self.stream = self.p.open(
-            format=pyaudio.paInt16,  # 16-bit
-            channels=1,              # Mono
-            rate=16000,             # 16kHz
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=16000,
             input=True,
             frames_per_buffer=CHUNK_SIZE
         )
@@ -71,19 +71,33 @@ class AudioHandler:
             return
             
         try:
-            # Create output stream
+            # Create output stream with larger buffer and lower latency
             stream = self.p.open(
-                format=pyaudio.paInt16,  # 16-bit
-                channels=1,              # Mono
-                rate=16000,             # 16kHz
-                output=True
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=16000,
+                output=True,
+                frames_per_buffer=4096,  # Increased buffer size
+                stream_callback=None,
+                output_device_index=None,
+                start=False  # Don't start yet
             )
             
-            # Play audio in chunks
-            for i in range(0, len(audio_data), CHUNK_SIZE):
-                chunk = audio_data[i:i + CHUNK_SIZE]
-                stream.write(chunk)
-                
+            # Start stream
+            stream.start_stream()
+            
+            # Calculate buffer size for smoother playback
+            buffer_size = len(audio_data)
+            chunk_size = 4096  # Larger chunks for smoother playback
+            
+            # Play audio in larger chunks
+            for i in range(0, buffer_size, chunk_size):
+                if not stream.is_active():
+                    break
+                chunk = audio_data[i:i + chunk_size]
+                stream.write(chunk, exception_on_underflow=False)
+            
+            # Properly close stream
             stream.stop_stream()
             stream.close()
             
