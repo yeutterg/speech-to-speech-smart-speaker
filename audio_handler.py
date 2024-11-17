@@ -1,105 +1,91 @@
-# audio_handler.py
-
 import pyaudio
 import wave
-import asyncio
 import logging
+import os
+from config import CHUNK_SIZE, SAMPLE_FORMAT, CHANNELS, RATE
 
-# Configure logging for AudioHandler
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] [AudioHandler] %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s [%(levelname)s] %(message)s'
 )
 
 class AudioHandler:
-    def __init__(self, output_audio_file='output.wav', chunk=1024, sample_format=pyaudio.paInt16, channels=1, rate=44100):
+    def __init__(self):
         self.p = pyaudio.PyAudio()
-        self.chunk = chunk
-        self.format = sample_format
-        self.channels = channels
-        self.rate = rate
         self.stream = None
         self.frames = []
         self.recording = False
-        self.output_audio_file = output_audio_file
-        logging.info("AudioHandler: Initialized.")
 
     def start_recording(self):
+        """Start recording audio from microphone"""
         if self.recording:
-            logging.warning("AudioHandler: Already recording.")
             return
-        logging.info("AudioHandler: Starting recording.")
-        self.frames = []
-        self.stream = self.p.open(format=self.format,
-                                  channels=self.channels,
-                                  rate=self.rate,
-                                  frames_per_buffer=self.chunk,
-                                  input=True)
+        
+        logging.info("Starting recording")
         self.recording = True
-        asyncio.create_task(self.record())
+        self.frames = []
+        self.stream = self.p.open(
+            format=self.p.get_format_from_width(SAMPLE_FORMAT // 8),
+            channels=CHANNELS,
+            rate=RATE,
+            input=True,
+            frames_per_buffer=CHUNK_SIZE
+        )
 
-    async def record(self):
-        logging.info("AudioHandler: Recording started.")
-        while self.recording:
-            data = self.stream.read(self.chunk, exception_on_overflow=False)
-            self.frames.append(data)
-            await asyncio.sleep(0)  # Yield control to the event loop
-        logging.info("AudioHandler: Recording stopped.")
+    def record(self):
+        """Record a chunk of audio"""
+        if self.recording and self.stream:
+            try:
+                data = self.stream.read(CHUNK_SIZE, exception_on_overflow=False)
+                self.frames.append(data)
+            except Exception as e:
+                logging.error(f"Error recording audio: {e}")
 
     def stop_recording(self):
+        """Stop recording and return the audio data"""
         if not self.recording:
-            logging.warning("AudioHandler: Not currently recording.")
             return None
-        logging.info("AudioHandler: Stopping recording.")
+            
+        logging.info("Stopping recording")
         self.recording = False
         self.stream.stop_stream()
         self.stream.close()
-        # Save the recorded data as a WAV file
-        wf = wave.open(self.output_audio_file, 'wb')
-        wf.setnchannels(self.channels)
-        wf.setsampwidth(self.p.get_sample_size(self.format))
-        wf.setframerate(self.rate)
-        wf.writeframes(b''.join(self.frames))
-        wf.close()
-        logging.info(f"AudioHandler: Audio saved to {self.output_audio_file}.")
-        # Read the audio data and return
-        with open(self.output_audio_file, 'rb') as f:
-            audio_data = f.read()
+        self.stream = None
+        
+        # Convert audio data to bytes
+        audio_data = b''.join(self.frames)
+        self.frames = []
         return audio_data
 
     def play_audio(self, audio_data):
-        """
-        Play audio from binary data.
-        """
-        logging.info("AudioHandler: Playing audio.")
-        wf = wave.open('temp_playback.wav', 'wb')
-        wf.setnchannels(self.channels)
-        wf.setsampwidth(self.p.get_sample_size(self.format))
-        wf.setframerate(self.rate)
-        wf.writeframes(audio_data)
-        wf.close()
-
-        # Play the audio
-        stream = self.p.open(format=self.format,
-                             channels=self.channels,
-                             rate=self.rate,
-                             output=True)
-        wf = wave.open('temp_playback.wav', 'rb')
-        data = wf.readframes(self.chunk)
-        while data:
-            stream.write(data)
-            data = wf.readframes(self.chunk)
-        stream.stop_stream()
-        stream.close()
-        wf.close()
-        logging.info("AudioHandler: Audio playback finished.")
+        """Play audio from bytes data"""
+        if not audio_data:
+            return
+            
+        try:
+            # Create output stream
+            stream = self.p.open(
+                format=self.p.get_format_from_width(SAMPLE_FORMAT // 8),
+                channels=CHANNELS,
+                rate=RATE,
+                output=True
+            )
+            
+            # Play audio in chunks
+            for i in range(0, len(audio_data), CHUNK_SIZE):
+                chunk = audio_data[i:i + CHUNK_SIZE]
+                stream.write(chunk)
+                
+            stream.stop_stream()
+            stream.close()
+            
+        except Exception as e:
+            logging.error(f"Error playing audio: {e}")
 
     def cleanup(self):
-        if self.stream is not None:
+        """Clean up resources"""
+        if self.stream:
             self.stream.stop_stream()
             self.stream.close()
         self.p.terminate()
-        logging.info("AudioHandler: Cleaned up.")
+        logging.info("Audio handler cleaned up") 

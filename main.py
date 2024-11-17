@@ -1,118 +1,132 @@
 import asyncio
-import signal
 import logging
-import os
-
-from hardware import HardwareController
+import signal
+from gpiozero import Button
+from openai_realtime_client import RealtimeClient, TurnDetectionMode
 from audio_handler import AudioHandler
-from dispatcher import dispatcher
-from openai_realtime_client import RealtimeClient
-from llama_index.core.tools import FunctionTool
+from config import OPENAI_API_KEY, BUTTON_PIN
 
-# Add your own tools here!
-def get_phone_number(name: str) -> str:
-    """Get my phone number."""
-    if name == "Jerry":
-        return "1234567890"
-    elif name == "Logan":
-        return "0987654321"
-    else:
-        return "Unknown"
-
-tools = [FunctionTool.from_defaults(fn=get_phone_number)]
-
-# Configure logging for Main
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] [Main] %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s [%(levelname)s] %(message)s'
 )
 
-async def shutdown(sig, loop, hardware: HardwareController, client: RealtimeClient, audio_handler: AudioHandler):
-    logging.info(f"Main: Received exit signal {sig.name}...")
-    hardware.close()
-    await client.close()
-    audio_handler.cleanup()
-    loop.stop()
-    logging.info("Main: Shutdown complete.")
+class SmartSpeaker:
+    def __init__(self):
+        self.recording = False
+        self.audio_handler = AudioHandler()
+        self.button = Button(BUTTON_PIN)
+        self.loop = None
+        self.streaming_task = None
+        
+        if not OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY not found in environment variables")
+            
+        self.client = RealtimeClient(
+            api_key=OPENAI_API_KEY,
+            on_text_delta=lambda text: print(f"\nAssistant: {text}", end="", flush=True),
+            on_audio_delta=self.audio_handler.play_audio,
+            on_input_transcript=lambda transcript: print(f"\nYou said: {transcript}\nAssistant: ", end="", flush=True),
+            on_output_transcript=lambda transcript: print(f"{transcript}", end="", flush=True),
+            turn_detection_mode=TurnDetectionMode.SERVER_VAD,
+        )
+        
+        # Set up button handler
+        self.button.when_pressed = self._button_pressed
+        
+    def _button_pressed(self):
+        """Non-async button handler that safely schedules the async toggle_recording"""
+        if self.loop is None:
+            logging.error("Event loop not set")
+            return
+            
+        asyncio.run_coroutine_threadsafe(self._toggle_recording(), self.loop)
+        
+    async def _toggle_recording(self):
+        """Async method to handle recording toggle and audio sending"""
+        if not self.recording:
+            # Start recording
+            self.recording = True
+            self.audio_handler.start_recording()
+            # Start streaming task
+            self.streaming_task = asyncio.create_task(self._stream_audio())
+            logging.info("Recording started")
+        else:
+            # Stop recording and streaming
+            self.recording = False
+            if self.streaming_task:
+                self.streaming_task.cancel()
+                self.streaming_task = None
+            self.audio_handler.stop_recording()
+            logging.info("Recording stopped")
+    
+    async def _stream_audio(self):
+        """Stream audio data to the Realtime API"""
+        try:
+            while self.recording:
+                audio_chunk = self.audio_handler.record()
+                if audio_chunk:
+                    await self.client.send_audio(audio_chunk)
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            logging.error(f"Error streaming audio: {e}")
+            self.recording = False
+    
+    async def start(self):
+        """Start the smart speaker"""
+        try:
+            # Store the event loop
+            self.loop = asyncio.get_running_loop()
+            
+            # Connect to Realtime API
+            await self.client.connect()
+            logging.info("Connected to Realtime API")
+            
+            # Start message handler
+            message_handler = asyncio.create_task(self.client.handle_messages())
+            
+            print("\nSmart Speaker is ready!")
+            print("Press the button to start/stop recording")
+            print("Press Ctrl+C to exit\n")
+            
+            # Keep the main coroutine alive
+            while True:
+                await asyncio.sleep(1)
+                
+        except Exception as e:
+            logging.error(f"Error in main loop: {e}")
+        finally:
+            await self.cleanup()
+    
+    async def cleanup(self):
+        """Clean up resources"""
+        self.recording = False
+        if self.streaming_task:
+            self.streaming_task.cancel()
+        await self.client.close()
+        self.audio_handler.cleanup()
+        self.button.close()
+        logging.info("Cleanup complete")
 
 async def main():
+    # Handle shutdown signals
     loop = asyncio.get_running_loop()
-
-    # Initialize external command queue
-    external_queue = asyncio.Queue()
-
-    # Initialize AudioHandler
-    audio_handler = AudioHandler()
-
-    # Initialize HardwareController
-    hardware = HardwareController(external_queue=external_queue, loop=loop, use_mock=False)
-
-    # Initialize RealtimeClient
-    client = RealtimeClient(
-        api_key=os.environ.get("OPENAI_API_KEY"),
-        on_text_delta=lambda text: print(f"\nAssistant: {text}", end="", flush=True),
-        on_audio_delta=lambda audio: audio_handler.play_audio(audio),
-        on_input_transcript=lambda transcript: print(f"\nYou said: {transcript}\nAssistant: ", end="", flush=True),
-        on_output_transcript=lambda transcript: print(f"{transcript}", end="", flush=True),
-        tools=tools,
-    )
-
-    # Start Dispatcher to distribute commands
-    input_handler_queue = asyncio.Queue()
-    audio_handler_queue = asyncio.Queue()
-    dispatcher_task = asyncio.create_task(dispatcher(external_queue, [input_handler_queue, audio_handler_queue]))
-
-    # Start RealtimeClient
-    await client.connect()
-
-    # Process Audio Commands
-    async def process_audio_commands():
-        while True:
-            command = await audio_handler_queue.get()
-            logging.info(f"AudioHandler: Received command: {command}")
-            if command == 'r':
-                audio_handler.start_recording()
-            elif command == 'enter':
-                audio_data = audio_handler.stop_recording()
-                if audio_data:
-                    await client.send_audio(audio_data)
-                else:
-                    logging.warning("AudioHandler: No audio data to send.")
-            audio_handler_queue.task_done()
-
-    audio_commands_task = asyncio.create_task(process_audio_commands())
-
-    # Register shutdown signals
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(
-            sig, lambda s=sig: asyncio.create_task(shutdown(s, loop, hardware, client, audio_handler))
-        )
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(cleanup()))
+    
+    speaker = SmartSpeaker()
+    await speaker.start()
 
-    logging.info("Main: System is running. Press the hardware button to interact.")
-
-    try:
-        # Keep the main coroutine alive
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        logging.error(f"Main: Error occurred - {e}")
-    finally:
-        # Clean up resources
-        hardware.close()
-        await client.close()
-        audio_handler.cleanup()
-        dispatcher_task.cancel()
-        audio_commands_task.cancel()
-        logging.info("Main: Cleanup complete.")
+async def cleanup():
+    """Handle shutdown gracefully"""
+    logging.info("Shutting down...")
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    [task.cancel() for task in tasks]
+    await asyncio.gather(*tasks, return_exceptions=True)
+    asyncio.get_event_loop().stop()
 
 if __name__ == "__main__":
-    # Ensure required packages are installed
-    # pip install pyaudio gpiozero openai_realtime_client llama-index pynput
-
-    logging.info("Starting Realtime API Integration...")
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Shutting down...")
