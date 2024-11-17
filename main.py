@@ -1,30 +1,65 @@
 import asyncio
-from openai_realtime_client.handlers.input_handler import InputHandler
+import logging
+import signal
 from hardware import HardwareController
 
+# Configure logging for main module
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] [Main] %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+
+async def handle_events(external_queue: asyncio.Queue):
+    """
+    Coroutine to handle events from the external queue.
+    """
+    while True:
+        event = await external_queue.get()
+        logging.info(f"Event received: {event}")
+        # Add your event handling logic here
+        # For example:
+        if event == "space_pressed":
+            logging.info("Space button was pressed!")
+            # Perform actions in response to the button press
+
+async def shutdown(signal, loop):
+    """
+    Cleanup tasks tied to the service's shutdown.
+    """
+    logging.info(f"Received exit signal {signal.name}...")
+    logging.info("Closing HardwareController...")
+    controller.close()
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    list(map(lambda t: t.cancel(), tasks))
+    logging.info("Cancelling outstanding tasks...")
+    await asyncio.gather(*tasks, return_exceptions=True)
+    loop.stop()
+
 async def main():
-    # Create a shared asyncio.Queue for external button presses
+    """
+    Main coroutine to set up hardware controller and event handling.
+    """
+    global controller
     external_queue = asyncio.Queue()
+    use_mock = False  # Set to True for testing without actual hardware
 
-    # Initialize InputHandler with the external queue
-    input_handler = InputHandler(external_queue)
-    input_handler.start()
+    controller = HardwareController(external_queue, use_mock=use_mock)
 
-    # Initialize HardwareController with the same external queue
-    hardware_controller = HardwareController(external_queue)
-    hardware_controller.start()
+    # Set up signal handlers for graceful shutdown
+    loop = asyncio.get_running_loop()
+    for s in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(
+            s, lambda s=s: asyncio.create_task(shutdown(s, loop))
+        )
 
-    try:
-        # Keep the main coroutine alive while other tasks are running
-        while True:
-            await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        print("Shutting down...")
-    finally:
-        # Gracefully stop the handlers
-        input_handler.stop()
-        hardware_controller.stop()
+    # Start handling events
+    await handle_events(external_queue)
 
-# Run the main coroutine
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Application shutdown requested.")
