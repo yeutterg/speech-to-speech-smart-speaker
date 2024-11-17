@@ -8,3 +8,4 @@ setuptools
 gpiozero
 pygame
 python-dotenv
+git+https://github.com/yeutterg/openai_realtime_client_headless#egg=openai_realtime_client

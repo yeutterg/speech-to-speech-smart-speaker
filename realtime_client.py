@@ -1,9 +1,11 @@
 import asyncio
-import websockets
 import json
 import logging
 import os
+
+from openai_realtime_client import OpenAIRealtimeClient
 from dotenv import load_dotenv
+import pygame
 
 load_dotenv()
 
@@ -12,78 +14,48 @@ logger = logging.getLogger('RealtimeClient')
 
 class RealtimeClient:
     def __init__(self, api_key=None, url='wss://api.openai.com/v1/realtime'):
-        self.api_key = api_key
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
         self.url = url
-        self.session = {}
-        self.websocket = None
-        self.event_handlers = {}
-        # Register event handlers
-        self.on('error', self.handle_error)
-        self.on('message', self.handle_messages)  # Ensure you have a message handler as well
-
-    def on(self, event_type, handler):
-        """
-        Registers an event handler for a specific event type.
-        """
-        self.event_handlers[event_type] = handler
+        self.client = OpenAIRealtimeClient(api_key=self.api_key, url=self.url)
+        self.client.on('error', self.handle_error)
+        self.client.on('response', self.handle_response)
+        self.client.on('end', self.handle_end)
+        pygame.mixer.init()
 
     async def connect(self):
-        """Establish WebSocket connection with the Realtime API."""
-        url = f"{self.url}?model=gpt-4o-realtime-preview-2024-10-01"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "OpenAI-Beta": "realtime=v1"
-        }
-        self.websocket = await websockets.connect(url, extra_headers=headers)
-        await self.update_session()
-
-    async def update_session(self):
-        """Update session configuration."""
-        config = {
+        await self.client.connect()
+        await self.client.update_session({
             "modalities": ["text", "audio"],
             "instructions": "You are a helpful assistant",
             "voice": "alloy",
             "temperature": 0.8,
-            # Add any other necessary parameters here
-        }
-        event = {
-            "type": "session.update",
-            "session": config
-        }
-        await self.websocket.send(json.dumps(event))
+        })
 
-    async def handle_messages(self):
-        """Handle incoming messages from the WebSocket."""
-        try:
-            async for message in self.websocket:
-                event = json.loads(message)
-                event_type = event.get("type")
+    async def send_audio(self, audio_data: bytes):
+        await self.client.send_audio(audio_data)
 
-                if event_type == "error":
-                    print(f"Error: {event['error']}")
-                elif event_type == "response.created":
-                    # Handle response creation
-                    pass
-                # Add more event handling as needed
-        except websockets.exceptions.ConnectionClosed:
-            print("Connection closed")
-        except Exception as e:
-            print(f"Error in message handling: {str(e)}")
+    def handle_response(self, response):
+        logger.info(f"Received response: {response}")
+        # Assuming the response contains audio data in bytes
+        audio_bytes = response.get('audio')  # Adjust based on actual response structure
+        if audio_bytes:
+            self.play_audio(audio_bytes)
 
-    async def handle_error(self, error):
-        """Handle errors from the WebSocket."""
-        print(f"Error: {error}")
+    def play_audio(self, audio_bytes: bytes):
+        """Play audio bytes using pygame."""
+        with open("temp_response.wav", "wb") as f:
+            f.write(audio_bytes)
+        pygame.mixer.music.load("temp_response.wav")
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(10)
+        os.remove("temp_response.wav")
+
+    def handle_error(self, error):
+        logger.error(f"Error: {error}")
+
+    def handle_end(self):
+        logger.info("Connection closed")
 
     async def close(self):
-        """Close the WebSocket connection."""
-        if self.websocket:
-            await self.websocket.close()
-
-# Usage
-async def connect_to_realtime():
-    client = RealtimeClient(api_key=os.getenv("OPENAI_API_KEY"))
-    await client.connect()
-    await client.handle_messages()
-
-# Run the client
-# asyncio.run(main())
+        await self.client.close()

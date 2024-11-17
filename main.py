@@ -1,23 +1,30 @@
 import asyncio
-from speech import SpeechHandler
-from hardware import HardwareInterface
+from openai_realtime_client.handlers.input_handler import InputHandler
+from hardware import HardwareController
 
 async def main():
-    # Initialize the SpeechHandler
-    speech_handler = SpeechHandler()
+    # Create a shared asyncio.Queue for external button presses
+    external_queue = asyncio.Queue()
 
-    # Initialize the HardwareInterface with the SpeechHandler
-    hardware_interface = HardwareInterface(speech_handler)
+    # Initialize InputHandler with the external queue
+    input_handler = InputHandler(external_queue)
+    input_handler.start()
 
-    print("[MAIN] Application is running. Press the button to activate.")
-    
+    # Initialize HardwareController with the same external queue
+    hardware_controller = HardwareController(external_queue)
+    hardware_controller.start()
+
     try:
-        # Keep the main thread alive to listen for events
-        await asyncio.Event().wait()
+        # Keep the main coroutine alive while other tasks are running
+        while True:
+            await asyncio.sleep(1)
     except KeyboardInterrupt:
-        print("\n[MAIN] Exiting gracefully.")
+        print("Shutting down...")
     finally:
-        hardware_interface.cleanup()
+        # Gracefully stop the handlers
+        input_handler.stop()
+        hardware_controller.stop()
 
+# Run the main coroutine
 if __name__ == "__main__":
     asyncio.run(main())
