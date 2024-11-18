@@ -22,7 +22,8 @@ class AudioIOHandler:
     def start_recording(self):
         """Start recording audio from microphone"""
         if self.recording:
-            return
+            logging.info("Recording is already in progress. Stopping playback before starting a new recording.")
+            self.stop_playback()  # Stop any ongoing playback
         
         logging.info("Starting recording")
         self.recording = True
