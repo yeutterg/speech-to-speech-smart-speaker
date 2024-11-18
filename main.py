@@ -17,6 +17,7 @@ class SmartSpeaker:
         self.audio_io_handler = AudioIOHandler()
         self.button = Button(BUTTON_PIN)
         self.loop = None
+        self.recording_event = asyncio.Event()  # New event for recording control
         
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
@@ -50,10 +51,12 @@ class SmartSpeaker:
             # Start recording
             self.recording = True
             self.audio_io_handler.start_recording()
+            self.recording_event.set()  # Set the event when recording starts
             logging.info("Recording started")
         else:
             # Stop recording and immediately send audio
             self.recording = False
+            self.recording_event.clear()  # Clear the event when recording stops
             audio_data = self.audio_io_handler.stop_recording()
             if audio_data:
                 try:
@@ -62,6 +65,13 @@ class SmartSpeaker:
                     logging.info("Audio sent successfully")
                 except Exception as e:
                     logging.error(f"Error sending audio: {e}")
+
+    async def _record_loop(self):
+        """Handle the recording loop"""
+        while True:
+            await self.recording_event.wait()  # Wait for recording to start
+            self.audio_io_handler.record()
+            await asyncio.sleep(0.005)  # Small delay to prevent CPU overload
     
     async def start(self):
         """Start the smart speaker"""
@@ -73,19 +83,17 @@ class SmartSpeaker:
             await self.client.connect()
             logging.info("Connected to Realtime API")
             
-            # Start message handler
+            # Start message handler and recording loop
             message_handler = asyncio.create_task(self.client.handle_messages())
-            logging.info("Message handler started")
+            recording_task = asyncio.create_task(self._record_loop())
+            logging.info("Message handler and recording loop started")
             
             print("\nSmart Speaker is ready!")
             print("Press the button to start/stop recording")
             print("Press Ctrl+C to exit\n")
             
-            # Main loop - just keep recording while active
-            while True:
-                if self.recording:
-                    self.audio_io_handler.record()
-                await asyncio.sleep(0.005)
+            # Wait forever or until interrupted
+            await asyncio.Event().wait()
                 
         except Exception as e:
             logging.error(f"Error in main loop: {e}")
