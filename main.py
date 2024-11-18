@@ -14,7 +14,7 @@ logging.basicConfig(
 class SmartSpeaker:
     def __init__(self):
         self.recording = False
-        self.audio_handler = AudioIOHandler()
+        self.audio_io_handler = AudioIOHandler()
         self.button = Button(BUTTON_PIN)
         self.loop = None
         
@@ -24,7 +24,7 @@ class SmartSpeaker:
         self.client = RealtimeClient(
             api_key=OPENAI_API_KEY,
             on_text_delta=lambda text: print(f"\nAssistant: {text}", end="", flush=True),
-            on_audio_delta=self.audio_handler.play_audio,
+            on_audio_delta=self.audio_io_handler.play_audio,
             on_input_transcript=lambda transcript: print(f"\nYou said: {transcript}\nAssistant: ", end="", flush=True),
             on_output_transcript=lambda transcript: print(f"{transcript}", end="", flush=True)
         )
@@ -44,17 +44,17 @@ class SmartSpeaker:
     async def _toggle_recording(self):
         """Async method to handle recording toggle and audio sending"""
         # Stop playback immediately in the synchronous context
-        self.audio_handler.stop_playback()
+        self.audio_io_handler.stop_playback()
         
         if not self.recording:
             # Start recording
             self.recording = True
-            self.audio_handler.start_recording()
+            self.audio_io_handler.start_recording()
             logging.info("Recording started")
         else:
             # Stop recording and immediately send audio
             self.recording = False
-            audio_data = self.audio_handler.stop_recording()
+            audio_data = self.audio_io_handler.stop_recording()
             if audio_data:
                 try:
                     logging.info("Sending audio to Realtime API...")
@@ -84,7 +84,7 @@ class SmartSpeaker:
             # Main loop - just keep recording while active
             while True:
                 if self.recording:
-                    self.audio_handler.record()
+                    self.audio_io_handler.record()
                 await asyncio.sleep(0.005)
                 
         except Exception as e:
@@ -96,7 +96,7 @@ class SmartSpeaker:
         """Clean up resources"""
         self.recording = False
         await self.client.close()
-        self.audio_handler.cleanup()
+        self.audio_io_handler.cleanup()
         self.button.close()
         logging.info("Cleanup complete")
 
