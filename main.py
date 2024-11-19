@@ -54,6 +54,11 @@ class SmartSpeaker:
             self.message_handler = asyncio.create_task(self.client.handle_messages())
             print("Connected to OpenAI Realtime API")
             self.streaming_task = asyncio.create_task(self.audio_handler.start_streaming(self.client))
+
+            while True:
+                # Keep the connection alive
+                command, _ = await self.input_handler.command_queue.get()
+
         except Exception as e:
             logging.error(f"Error: {e}")
         finally:
