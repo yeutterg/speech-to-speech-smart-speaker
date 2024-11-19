@@ -1,10 +1,11 @@
 import asyncio
-import logging
-import signal
+from config import OPENAI_API_KEY, BUTTON_PIN, CHUNK_SIZE, SAMPLE_FORMAT, CHANNELS, RATE
 from gpiozero import Button
-from openai_realtime_client import RealtimeClient
-from audio import AudioIOHandler
-from config import OPENAI_API_KEY, BUTTON_PIN
+import logging
+from openai_realtime_client import RealtimeClient, AudioHandler, InputHandler, TurnDetectionMode
+import pyaudio
+from queue import Queue
+import signal
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,11 +14,20 @@ logging.basicConfig(
 
 class SmartSpeaker:
     def __init__(self):
-        self.recording = False
-        self.audio_io_handler = AudioIOHandler()
+        self.audio_handler = AudioHandler()
         self.button = Button(BUTTON_PIN)
-        self.loop = None
-        self.recording_event = asyncio.Event()  # New event for recording control
+        self.p = pyaudio.PyAudio()
+        self.stream = None
+        self.frames = []
+        self.recording = False
+
+        self.stream = self.p.open(
+            format=SAMPLE_FORMAT,
+            channels=CHANNELS,
+            rate=RATE,
+            input=True,
+            frames_per_buffer=CHUNK_SIZE
+        )
         
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
@@ -25,108 +35,53 @@ class SmartSpeaker:
         self.client = RealtimeClient(
             api_key=OPENAI_API_KEY,
             on_text_delta=lambda text: print(f"\nAssistant: {text}", end="", flush=True),
-            on_audio_delta=self.audio_io_handler.play_audio,
+            on_audio_delta=lambda audio: self.play_audio(audio),
+            on_interrupt=lambda: self.audio_handler.stop_playback_immediately(),
+            turn_detection_mode=TurnDetectionMode.SERVER_VAD,
             on_input_transcript=lambda transcript: print(f"\nYou said: {transcript}\nAssistant: ", end="", flush=True),
             on_output_transcript=lambda transcript: print(f"{transcript}", end="", flush=True)
         )
-        
-        # Set up button handler
-        self.button.when_pressed = self._button_pressed
-        
-    def _button_pressed(self):
-        """Non-async button handler that safely schedules the async toggle_recording"""
-        if self.loop is None:
-            logging.error("Event loop not set")
-            return
-        
-        # Schedule the toggle recording
-        asyncio.run_coroutine_threadsafe(self._toggle_recording(), self.loop)
-        
-    async def _toggle_recording(self):
-        """Async method to handle recording toggle and audio sending"""
-        # Stop playback immediately in the synchronous context
-        self.audio_io_handler.stop_playback()
-        
-        if not self.recording:
-            # Start recording
-            self.recording = True
-            self.audio_io_handler.start_recording()
-            self.recording_event.set()  # Set the event when recording starts
-            logging.info("Recording started")
-        else:
-            # Stop recording and immediately send audio
-            self.recording = False
-            self.recording_event.clear()  # Clear the event when recording stops
-            audio_data = self.audio_io_handler.stop_recording()
-            if audio_data:
-                try:
-                    logging.info("Sending audio to Realtime API...")
-                    await self.client.send_audio(audio_data)
-                    logging.info("Audio sent successfully")
-                except Exception as e:
-                    logging.error(f"Error sending audio: {e}")
 
-    async def _record_loop(self):
-        """Handle the recording loop"""
-        while True:
-            await self.recording_event.wait()  # Wait for recording to start
-            self.audio_io_handler.record()
-            await asyncio.sleep(0.005)  # Small delay to prevent CPU overload
-    
     async def start(self):
         """Start the smart speaker"""
+        external_queue = Queue()
+        self.loop = asyncio.get_running_loop()
+        
+        self.input_handler = InputHandler(external_queue, self.loop)
+        
         try:
-            # Store the event loop
-            self.loop = asyncio.get_running_loop()
-            
-            # Connect to Realtime API
             await self.client.connect()
-            logging.info("Connected to Realtime API")
-            
-            # Start message handler and recording loop
-            message_handler = asyncio.create_task(self.client.handle_messages())
-            recording_task = asyncio.create_task(self._record_loop())
-            logging.info("Message handler and recording loop started")
-            
-            print("\nSmart Speaker is ready!")
-            print("Press the button to start/stop recording")
-            print("Press Ctrl+C to exit\n")
-            
-            # Wait forever or until interrupted
-            await asyncio.Event().wait()
-                
+            self.message_handler = asyncio.create_task(self.client.handle_messages())
+            print("Connected to OpenAI Realtime API")
+            self.streaming_task = asyncio.create_task(self.audio_handler.start_streaming(self.client))
         except Exception as e:
-            logging.error(f"Error in main loop: {e}")
+            logging.error(f"Error: {e}")
         finally:
             await self.cleanup()
-    
+
+    def play_audio(self, audio_data):
+        """Play audio using the audio handler"""
+        if not audio_data:
+            logging.warning("No audio data received")
+            return
+
+        try:
+            logging.info("Playing audio")
+            self.audio_handler.play_audio(audio_data)
+        except Exception as e:
+            logging.error(f"Error playing audio: {e}")
+
     async def cleanup(self):
         """Clean up resources"""
-        self.recording = False
+        self.audio_handler.stop_streaming()
+        self.audio_handler.cleanup()
         await self.client.close()
-        self.audio_io_handler.cleanup()
         self.button.close()
         logging.info("Cleanup complete")
 
-async def main():
-    # Handle shutdown signals
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(cleanup()))
-    
-    speaker = SmartSpeaker()
-    await speaker.start()
-
-async def cleanup():
-    """Handle shutdown gracefully"""
-    logging.info("Shutting down...")
-    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    [task.cancel() for task in tasks]
-    await asyncio.gather(*tasks, return_exceptions=True)
-    asyncio.get_event_loop().stop()
-
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        speaker = SmartSpeaker()
+        asyncio.run(speaker.start())
     except KeyboardInterrupt:
         logging.info("Shutting down...")
