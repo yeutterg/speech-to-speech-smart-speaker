@@ -1,8 +1,8 @@
 import asyncio
 from config import OPENAI_API_KEY, BUTTON_PIN, CHUNK_SIZE, SAMPLE_FORMAT, CHANNELS, RATE
-from gpiozero import Button
 import logging
 from openai_realtime_client import RealtimeClient, AudioHandler, InputHandler, TurnDetectionMode
+from hardware import HardwareController 
 import pyaudio
 from queue import Queue
 import signal
@@ -15,11 +15,12 @@ logging.basicConfig(
 class SmartSpeaker:
     def __init__(self):
         self.audio_handler = AudioHandler()
-        self.button = Button(BUTTON_PIN)
         self.p = pyaudio.PyAudio()
         self.stream = None
         self.frames = []
         self.recording = False
+        self.external_queue = Queue()
+        self.hardware_controller = None
 
         self.stream = self.p.open(
             format=SAMPLE_FORMAT,
@@ -37,17 +38,69 @@ class SmartSpeaker:
             on_text_delta=lambda text: print(f"\nAssistant: {text}", end="", flush=True),
             on_audio_delta=lambda audio: self.play_audio(audio),
             on_interrupt=lambda: self.audio_handler.stop_playback_immediately(),
-            turn_detection_mode=TurnDetectionMode.SERVER_VAD,
+            turn_detection_mode=TurnDetectionMode.MANUAL,
             on_input_transcript=lambda transcript: print(f"\nYou said: {transcript}\nAssistant: ", end="", flush=True),
             on_output_transcript=lambda transcript: print(f"{transcript}", end="", flush=True)
         )
 
+    async def start_recording(self):
+        """Start recording audio from the microphone."""
+        if self.recording:
+            logging.warning("Already recording")
+            return
+        self.recording = True
+        self.frames = []
+        logging.info("Started recording")
+        # Start a background task to read audio frames
+        self.recording_task = asyncio.create_task(self.record_audio())
+
+    async def stop_recording(self):
+        """Stop recording audio and send it to the API."""
+        if not self.recording:
+            logging.warning("Not currently recording")
+            return
+        self.recording = False
+        self.recording_task.cancel()
+        logging.info("Stopped recording")
+        audio_data = b''.join(self.frames)
+        await self.client.send_audio(audio_data)
+
+    async def record_audio(self):
+        """Continuously read audio frames while recording."""
+        try:
+            while self.recording:
+                data = self.stream.read(CHUNK_SIZE, exception_on_overflow=False)
+                self.frames.append(data)
+                await asyncio.sleep(0)  # Yield control to the event loop
+        except asyncio.CancelledError:
+            logging.info("Recording task cancelled")
+        except Exception as e:
+            logging.error(f"Error during recording: {e}")
+
+    async def handle_commands(self):
+        """Handle incoming commands from the queue."""
+        while True:
+            command = await self.loop.run_in_executor(None, self.external_queue.get)
+            if command == "toggle_recording":
+                if not self.recording:
+                    await self.start_recording()
+                else:
+                    await self.stop_recording()
+            elif command in ["enter", "r"]:
+                print("button pressed")  # Print message on button press
+
     async def start(self):
         """Start the smart speaker"""
-        external_queue = Queue()
         self.loop = asyncio.get_running_loop()
         
-        self.input_handler = InputHandler(external_queue, self.loop)
+        # Initialize HardwareController with the shared external_queue and event loop
+        self.hardware_controller = HardwareController(
+            external_queue=self.external_queue,
+            loop=self.loop,
+            use_mock=False  # Set to True if you want to use mock hardware for testing
+        )
+        
+        self.input_handler = InputHandler(self.external_queue, self.loop)
         
         try:
             await self.client.connect()
@@ -55,9 +108,8 @@ class SmartSpeaker:
             print("Connected to OpenAI Realtime API")
             self.streaming_task = asyncio.create_task(self.audio_handler.start_streaming(self.client))
 
-            while True:
-                # Keep the connection alive
-                command, _ = await self.input_handler.command_queue.get()
+            # Start handling button commands
+            await self.handle_commands()
 
         except Exception as e:
             logging.error(f"Error: {e}")
@@ -81,7 +133,11 @@ class SmartSpeaker:
         self.audio_handler.stop_streaming()
         self.audio_handler.cleanup()
         await self.client.close()
-        self.button.close()
+        if self.hardware_controller:
+            self.hardware_controller.close()
+        self.stream.stop_stream()
+        self.stream.close()
+        self.p.terminate()
         logging.info("Cleanup complete")
 
 if __name__ == "__main__":
