@@ -61,17 +61,24 @@ class HardwareController:
 
         logging.info("HardwareController: Button pressed. Scheduling event to external queue.")
         try:
+            # Determine the next command based on the last button press
             if self.last_button_press == "enter":
-                logging.info("HardwareController: Scheduling 'r' to external queue.")
-                future = asyncio.run_coroutine_threadsafe(self.external_queue.put("r"), self.loop)
+                command = "r"
                 self.last_button_press = "r"
+                logging.info("HardwareController: Scheduling 'r' to external queue.")
             else:
-                logging.info("HardwareController: Scheduling 'enter' to external queue.")
-                future = asyncio.run_coroutine_threadsafe(self.external_queue.put("enter"), self.loop)
+                command = "enter"
                 self.last_button_press = "enter"
+                logging.info("HardwareController: Scheduling 'enter' to external queue.")
+
+            # Schedule the command to be put in the asyncio.Queue
+            future = asyncio.run_coroutine_threadsafe(
+                self.external_queue.put(command), self.loop
+            )
+
             # Optionally, check if the future was successful
             result = future.result(timeout=1)
-            logging.info(f"HardwareController: Successfully enqueued event. Queue size: {self.external_queue.qsize()}")
+            logging.info(f"HardwareController: Successfully enqueued command '{command}'. Queue size: {self.external_queue.qsize()}")
         except Exception as e:
             logging.error(f"HardwareController: Failed to schedule event to external queue: {e}")
 
