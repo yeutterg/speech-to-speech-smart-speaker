@@ -67,3 +67,14 @@ pip3 install pyaudio
 5. Install FFmpeg: ```sudo apt-get install ffmpeg```
 6. Install the Python dependencies: ```pip3 install -r requirements.txt```
 7. Run the project: ```python3 main.py```
+
+## Tools
+
+This project leverages function calling (tool calling) in the OpenAI API to request information or execute actions from external systems. Here's how to set up the provided tools:
+
+### Weather
+
+We will use the [OpenWeatherMap](https://openweathermap.org/api)'s APIs to get the current weather and weather forecasts. Even though you have to input your payment information to get an API key, the API is free for up to 1,000 requests per day on the One Call API (for hourly forecasts) and 60 requests per minute on the other APIs (for current weather and 5-day forecasts).
+
+1. Go to [OpenWeatherMap](https://openweathermap.org/api)'s API page. Under One Call API 3.0, click Subscribe, enter your billing information, create an account, log in, and get an API key
+2. Paste your new API key into .env under ```OPENWEATHERMAP_API_KEY=""```
