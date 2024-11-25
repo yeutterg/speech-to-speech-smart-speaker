@@ -12,7 +12,7 @@ class WeatherTool(BaseTool):
         Args:
             api_key (str): OpenWeatherMap API key
             default_location (Tuple[float, float]): Default (lat, long) to use when no location specified
-            default_units (str): Default temperature unit ('F' or 'C')
+            default_units (str): Default temperature unit ('F', 'C', or 'K')
         """
         self.api_key = api_key
         self.default_location = default_location
@@ -24,7 +24,7 @@ class WeatherTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Get weather information for a location. Provide forecast_type ('current', 'hourly', or '5day') and optionally a location name and unit ('F' or 'C')."
+        return "Get weather information for a location. Provide forecast_type ('current', 'hourly', or '5day') and optionally a location name and unit ('F', 'C', or 'K')."
 
     def execute(self, forecast_type: str, location: str = None, unit: str = None) -> Dict[str, Any]:
         """Get weather information for a location.
@@ -32,7 +32,7 @@ class WeatherTool(BaseTool):
         Args:
             forecast_type (str): Type of forecast ('current', 'hourly', or '5day')
             location (str, optional): City name (e.g., 'London', 'New York')
-            unit (str, optional): Temperature unit ('F' or 'C')
+            unit (str, optional): Temperature unit ('F', 'C', or 'K')
             
         Returns:
             Dict[str, Any]: Weather information including temperature, humidity, and description

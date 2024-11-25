@@ -248,18 +248,32 @@ class SmartSpeaker:
         
     async def handle_tool_call(self, tool_call):
         """Handle tool calls from the API"""
+        logging.info(f"Received tool call with ID: {tool_call.id}")
         try:
             tool_name = tool_call.name
             arguments = tool_call.arguments
             
+            logging.info(f"Executing tool call: {tool_name}")
+            logging.debug(f"Tool arguments: {arguments}")
+            
             # Execute the tool
+            logging.info(f"Calling tool_registry.execute_tool for '{tool_name}'")
             result = self.tool_registry.execute_tool(tool_name, **arguments)
             
+            logging.info(f"Tool '{tool_name}' execution completed successfully")
+            logging.debug(f"Tool result: {result}")
+            
             # Send the result back to the API
+            logging.info(f"Sending tool result back to API for call ID: {tool_call.id}")
             await self.client.send_tool_result(tool_call.id, result)
+            logging.info(f"Tool result sent successfully for '{tool_name}'")
             
         except Exception as e:
+            error_msg = f"Error executing tool '{tool_name}': {str(e)}"
+            logging.error(error_msg)
+            logging.exception("Full exception details:")  # This will log the full traceback
             error_result = {"error": str(e)}
+            logging.info(f"Sending error result back to API for call ID: {tool_call.id}")
             await self.client.send_tool_result(tool_call.id, error_result)
 
     async def cleanup(self):

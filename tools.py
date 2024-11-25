@@ -133,13 +133,29 @@ class ToolRegistry:
         Raises:
             ValueError: If tool not found
         """
+        logging.info(f"ToolRegistry: Looking for tool '{tool_name}'")
+        logging.debug(f"ToolRegistry: Available tools: {self.list_available_tools()}")
+        
         for tool in self.tools:
             if tool.name == tool_name:
+                logging.info(f"ToolRegistry: Found tool '{tool_name}', preparing to execute")
+                logging.debug(f"ToolRegistry: Executing with arguments: {kwargs}")
+                
                 try:
-                    return tool.execute(**kwargs)
+                    logging.info(f"ToolRegistry: Starting execution of '{tool_name}'")
+                    result = tool.execute(**kwargs)
+                    logging.info(f"ToolRegistry: Successfully executed '{tool_name}'")
+                    logging.debug(f"ToolRegistry: Execution result: {result}")
+                    return result
                 except Exception as e:
+                    error_msg = f"ToolRegistry: Failed to execute '{tool_name}': {str(e)}"
+                    logging.error(error_msg)
+                    logging.exception("ToolRegistry: Full exception details:")
                     return {"error": str(e)}
-        raise ValueError(f"Tool '{tool_name}' not found")
+                
+        error_msg = f"ToolRegistry: Tool '{tool_name}' not found"
+        logging.error(error_msg)
+        raise ValueError(error_msg)
     
     def list_available_tools(self) -> List[str]:
         """
