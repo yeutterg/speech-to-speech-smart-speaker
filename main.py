@@ -10,6 +10,8 @@ from openai_realtime_client import (
 )
 from hardware import HardwareController
 import pyaudio
+from tools import ToolRegistry
+from llama_index.core.tools import FunctionTool
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,11 +25,22 @@ class SmartSpeaker:
         self.stream = None
         self.frames = []
         self.recording = False
-        self.mic_muted = True     # Start with microphone muted
-        self.speaker_muted = False  # Start with speaker unmuted (to hear responses)
+        self.mic_muted = True          # Start with microphone muted
+        self.speaker_muted = False     # Start with speaker unmuted (to hear responses)
+        self.tool_registry = ToolRegistry()     # Initialize tools
 
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
+
+        # Convert tools to LlamaIndex FunctionTools
+        self.function_tools = []
+        for tool in self.tool_registry.tools:
+            function_tool = FunctionTool.from_defaults(
+                fn=tool.execute,
+                name=tool.name,
+                description=tool.description
+            )
+            self.function_tools.append(function_tool)
         
         self.client = RealtimeClient(
             api_key=OPENAI_API_KEY,
@@ -41,6 +54,7 @@ class SmartSpeaker:
             on_output_transcript=lambda transcript: print(
                 f"{transcript}", end="", flush=True
             ),
+            tools=self.function_tools,
         )
 
         # Initialize the command queue as an asyncio.Queue
@@ -231,6 +245,22 @@ class SmartSpeaker:
             self.audio_handler.play_audio(audio_data)
         except Exception as e:
             logging.error(f"Error playing audio: {e}")
+        
+    async def handle_tool_call(self, tool_call):
+        """Handle tool calls from the API"""
+        try:
+            tool_name = tool_call.name
+            arguments = tool_call.arguments
+            
+            # Execute the tool
+            result = self.tool_registry.execute_tool(tool_name, **arguments)
+            
+            # Send the result back to the API
+            await self.client.send_tool_result(tool_call.id, result)
+            
+        except Exception as e:
+            error_result = {"error": str(e)}
+            await self.client.send_tool_result(tool_call.id, error_result)
 
     async def cleanup(self):
         """Clean up resources."""
