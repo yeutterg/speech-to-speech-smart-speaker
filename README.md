@@ -64,9 +64,13 @@ pip3 install pyaudio
 2. Go to [platform.openai.com](https://platform.openai.com/), create an account and add $5-$10 credit (if you haven't already), then [create a new API secret key](https://platform.openai.com/api-keys) and copy it
 3. Make a copy of .env.sample and rename it to .env
 4. Paste your new API key into .env under ```OPENAI_API_KEY=""```
-5. Install FFmpeg: ```sudo apt-get install ffmpeg```
-6. Install the Python dependencies: ```pip3 install -r requirements.txt```
-7. Create a virtual environment: ```python3 -m venv env```
+5. [Create a LiveKit Cloud account](https://cloud.livekit.io/login), then follow the prompts tocreate a new app
+6. (needed?) Install the LiveKit CLI: ```curl -sSL https://get.livekit.io/cli | bash```
+7. (needed?) Authenticate LiveKit: ```lk cloud auth```
+8. Within the LiveKit Cloud webapp, go to your app, then click on the ```Settings``` sidebar tab, then copy or generate an API Key. Paste it into .env under ```LIVEKIT_API_KEY=""```
+9. Install FFmpeg: ```sudo apt-get install ffmpeg```
+10. Install the Python dependencies: ```pip3 install -r requirements.txt```
+11. Create a virtual environment: ```python3 -m venv env```
 
 ### Run the project
 

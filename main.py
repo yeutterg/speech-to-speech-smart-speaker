@@ -2,16 +2,17 @@ import asyncio
 import logging
 import wave
 import io
-from config import OPENAI_API_KEY, CHUNK_SIZE, SAMPLE_FORMAT, CHANNELS, RATE
-from openai_realtime_client import (
-    RealtimeClient,
-    AudioHandler,
-    TurnDetectionMode,
+from config import (
+    CHUNK_SIZE, 
+    SAMPLE_FORMAT, 
+    CHANNELS, 
+    RATE,
+    LIVEKIT_TOKEN,
+    LIVEKIT_URL
 )
-from hardware import HardwareController
+from livekit import rtc
 import pyaudio
-from tools import ToolRegistry
-from llama_index.core.tools import FunctionTool
+from hardware import HardwareController
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,52 +21,47 @@ logging.basicConfig(
 
 class SmartSpeaker:
     def __init__(self):
-        self.audio_handler = AudioHandler()
         self.p = pyaudio.PyAudio()
         self.stream = None
         self.frames = []
         self.recording = False
         self.mic_muted = True          # Start with microphone muted
-        self.speaker_muted = False     # Start with speaker unmuted (to hear responses)
-        self.tool_registry = ToolRegistry()     # Initialize tools
-
-        if not OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY not found in environment variables")
-
-        # Convert tools to LlamaIndex FunctionTools
-        self.function_tools = []
-        for tool in self.tool_registry.tools:
-            function_tool = FunctionTool.from_defaults(
-                fn=tool.execute,
-                name=tool.name,
-                description=tool.description
-            )
-            self.function_tools.append(function_tool)
+        self.speaker_muted = False     # Start with speaker unmuted
         
-        self.client = RealtimeClient(
-            api_key=OPENAI_API_KEY,
-            on_text_delta=lambda text: print(f"\nAssistant: {text}", end="", flush=True),
-            on_audio_delta=self.play_audio,
-            on_interrupt=self.stop_playback,
-            turn_detection_mode=TurnDetectionMode.MANUAL,
-            on_input_transcript=lambda transcript: print(
-                f"\nYou said: {transcript}\nAssistant: ", end="", flush=True
-            ),
-            on_output_transcript=lambda transcript: print(
-                f"{transcript}", end="", flush=True
-            ),
-            tools=self.function_tools,
-        )
+        # Initialize LiveKit room
+        self.room = rtc.Room()
+        self._setup_room_handlers()
 
         # Initialize the command queue as an asyncio.Queue
         self.external_queue = asyncio.Queue()
-        self.hardware_controller = None  # Will be initialized in async context
-
-        # Ready flag to ignore initial spurious commands
+        self.hardware_controller = None
         self.ready = False
-
-        # Lock to prevent overlapping conversations
         self.conversation_lock = asyncio.Lock()
+
+    def _setup_room_handlers(self):
+        @self.room.on("participant_connected")
+        def on_participant_connected(participant: rtc.RemoteParticipant):
+            logging.info(
+                "participant connected: %s %s", participant.sid, participant.identity
+            )
+
+        @self.room.on("track_subscribed")
+        def on_track_subscribed(
+            track: rtc.Track,
+            publication: rtc.RemoteTrackPublication,
+            participant: rtc.RemoteParticipant,
+        ):
+            logging.info("track subscribed: %s", publication.sid)
+            if track.kind == rtc.TrackKind.KIND_AUDIO:
+                # Handle incoming audio track
+                audio_stream = rtc.AudioStream(track)
+                asyncio.ensure_future(self.handle_audio_stream(audio_stream))
+
+    async def handle_audio_stream(self, stream: rtc.AudioStream):
+        async for frame in stream:
+            if not self.speaker_muted:
+                # Play the received audio frame
+                self.play_audio(frame.data)
 
     def _encode_wav(self, frames):
         """Encapsulate raw audio frames into WAV format."""
@@ -75,15 +71,13 @@ class SmartSpeaker:
             wf.setsampwidth(self.p.get_sample_size(SAMPLE_FORMAT))
             wf.setframerate(RATE)
             wf.writeframes(b''.join(frames))
-        wav_data = buffer.getvalue()
-        logging.debug(f"Encoded WAV data size: {len(wav_data)} bytes.")
-        return wav_data
+        return buffer.getvalue()
 
     async def start_recording(self):
-        """Start recording audio from the microphone."""
+        """Start recording audio and publishing to LiveKit."""
         if self.recording:
-            logging.warning("Attempted to start recording, but already recording.")
             return
+        
         try:
             self.stream = self.p.open(
                 format=SAMPLE_FORMAT,
@@ -93,61 +87,29 @@ class SmartSpeaker:
                 frames_per_buffer=CHUNK_SIZE,
             )
             self.recording = True
-            self.mic_muted = False  # Unmute when recording starts
+            self.mic_muted = False
             self.frames = []
             logging.info("Recording started.")
-            # Stop any ongoing playback to prevent feedback
-            self.audio_handler.stop_playback_immediately()
-            # Start a background task to read audio frames
-            self.recording_task = asyncio.create_task(self.record_audio())
-            # Start AudioHandler streaming
-            self.streaming_task = asyncio.create_task(
-                self.audio_handler.start_streaming(self.client)
-            )
+            
+            # Create and publish local audio track
+            local_track = await rtc.LocalAudioTrack.create()
+            await self.room.local_participant.publish_track(local_track)
+            
+            # Start recording task
+            self.recording_task = asyncio.create_task(self.record_audio(local_track))
+            
         except Exception as e:
             logging.error(f"Failed to start recording: {e}")
 
-    async def stop_recording(self):
-        """Stop recording audio and send it to the API."""
-        if not self.recording:
-            logging.warning("Attempted to stop recording, but not currently recording.")
-            return
+    async def record_audio(self, local_track):
+        """Continuously read and publish audio frames."""
         try:
-            self.recording = False
-            self.mic_muted = True  # Mute when recording stops
-            self.recording_task.cancel()
-            await self.recording_task
-            logging.info("Recording stopped.")
-            if not self.frames:
-                logging.warning("No audio frames were recorded. Skipping send_audio.")
-                return
-            audio_data = self._encode_wav(self.frames)
-            logging.info(f"Sending {len(audio_data)} bytes of audio data to the API.")
-            await self.client.send_audio(audio_data)
-            # Stop AudioHandler streaming
-            self.audio_handler.stop_playback_immediately()
-            if self.streaming_task:
-                self.streaming_task.cancel()
-                await self.streaming_task
-            # Clear frames after sending
-            self.frames = []
-        except asyncio.CancelledError:
-            logging.info("Recording task cancelled successfully.")
-        except Exception as e:
-            logging.error(f"Failed to stop recording: {e}")
-        finally:
-            if self.stream:
-                self.stream.stop_stream()
-                self.stream.close()
-                self.stream = None
-
-    async def record_audio(self):
-        """Continuously read audio frames while recording."""
-        try:
-            while self.recording:
+            while self.recording and not self.mic_muted:
                 data = self.stream.read(CHUNK_SIZE, exception_on_overflow=False)
                 self.frames.append(data)
-                await asyncio.sleep(0)  # Yield control to the event loop
+                # Convert data to proper format for LiveKit
+                await local_track.write_sample(data, RATE, CHANNELS)
+                await asyncio.sleep(0.01)
         except asyncio.CancelledError:
             logging.info("Recording task cancelled.")
         except Exception as e:
@@ -205,24 +167,22 @@ class SmartSpeaker:
         """Start the smart speaker."""
         self.loop = asyncio.get_running_loop()
 
-        # Initialize HardwareController with the shared external_queue and event loop
+        # Initialize HardwareController
         self.hardware_controller = HardwareController(
             external_queue=self.external_queue,
             loop=self.loop,
-            use_mock=False,  # Set to True if you want to use mock hardware for testing
+            use_mock=False,
         )
 
         try:
-            await self.client.connect()
-            self.message_handler = asyncio.create_task(
-                self.client.handle_messages()
-            )
-            logging.info("Connected to OpenAI Realtime API.")
+            # Connect to LiveKit room
+            await self.room.connect(LIVEKIT_URL, LIVEKIT_TOKEN)
+            logging.info("Connected to LiveKit room: %s", self.room.name)
 
-            # Start handling button commands as a background task
+            # Start handling button commands
             handle_commands_task = asyncio.create_task(self.handle_commands())
 
-            # Keep the program running indefinitely
+            # Keep the program running
             await asyncio.Event().wait()
 
         except Exception as e:
@@ -231,7 +191,7 @@ class SmartSpeaker:
             await self.cleanup()
 
     def play_audio(self, audio_data):
-        """Play audio using the audio handler."""
+        """Play audio using PyAudio output stream."""
         if self.speaker_muted:
             logging.info("Speaker muted. Skipping audio playback.")
             return
@@ -241,8 +201,18 @@ class SmartSpeaker:
             return
 
         try:
+            # Create output stream if it doesn't exist
+            if not hasattr(self, 'output_stream'):
+                self.output_stream = self.p.open(
+                    format=SAMPLE_FORMAT,
+                    channels=CHANNELS,
+                    rate=RATE,
+                    output=True,
+                    frames_per_buffer=CHUNK_SIZE
+                )
+            
             logging.info("Playing received audio.")
-            self.audio_handler.play_audio(audio_data)
+            self.output_stream.write(audio_data)
         except Exception as e:
             logging.error(f"Error playing audio: {e}")
         
@@ -279,18 +249,21 @@ class SmartSpeaker:
     async def cleanup(self):
         """Clean up resources."""
         logging.info("Starting cleanup process.")
-        self.audio_handler.stop_streaming()
-        self.audio_handler.cleanup()
-        await self.client.close()
-        if self.hardware_controller:
-            self.hardware_controller.close()
         if self.recording:
             await self.stop_recording()
+        if hasattr(self, 'output_stream'):
+            self.output_stream.stop_stream()
+            self.output_stream.close()
+        await self.room.disconnect()
+        if self.hardware_controller:
+            self.hardware_controller.close()
         self.p.terminate()
         logging.info("Cleanup complete.")
 
 if __name__ == "__main__":
     try:
+        if not LIVEKIT_TOKEN or not LIVEKIT_URL:
+            raise ValueError("LIVEKIT_TOKEN and LIVEKIT_URL are required")
         speaker = SmartSpeaker()
         asyncio.run(speaker.start())
     except KeyboardInterrupt:
